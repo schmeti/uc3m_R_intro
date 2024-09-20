@@ -1,0 +1,115 @@
+---
+title: "gender_pay_gap_exploratory_simon"
+output: html_document
+date: "2024-09-20"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+The following document is the documentation of a project work done in the context of the course "Introduction into R" in the Master for statistics in Data Science at the Universidad Carlos III de Madrid.
+
+Topic of this project work will be analyzing the Kaggel Data set https://www.kaggle.com/datasets/nilimajauhari/glassdoor-analyze-gender-pay-gap taken from the job review website Glassdoor. 
+
+This project aims to analyze the gender pay gap using this dataset based 1000 Datapoints consisting out of the Features: 
+- Job Title
+- Gender
+- Age
+- Performance evaluation
+- Education
+- Department
+- Seniority
+- Base Pay [$/Year]
+- Bonus [$/Year]
+
+The goal is to explore the relationships between gender and salary, uncovering correlations between other features and Base Pay/Bonus in the context of gender.
+
+The analysis will begin with a descriptive study of the dataset, where measures of central tendency, variability, and distribution shape for salary data and other continuous variables are calculated. These relationships will be visualized using histograms, box plots, and other graphical representations to assess normality and distribution characteristics.
+
+In the second phase of the project, machine learning methods will be applied to make predictions for Base Pay & Bonus based on the available features using a variety of machine learning libraries like caret and H2O.
+
+```{r}
+# Load Data
+data = data.frame(read.csv("Data/Glassdoor Gender Pay Gap.csv"))
+print(head(data))
+
+# check for missing data
+total_missing <- sum(is.na(data))
+print(paste("Total missing values:", total_missing))
+
+
+```
+
+
+```{r}
+for (col in colnames(data)) {
+  unique_count <- length(unique(data[[col]]))
+  print(paste0("Unique values in column", col, ":", unique_count))
+}
+
+paste("\n\n")
+
+for (col in c("JobTitle","Gender","PerfEval","Education","Dept","Seniority")) {
+  unique_values <- unique(data[[col]])
+  cat(paste("Unique values in column", col, ":", paste(unique_values, collapse = ", "), "\n"))
+}
+
+```
+
+
+```{r}
+par(mar = c(10, 4, 4, 2))
+
+for (col in colnames(data)) {
+  if (is.numeric(data[[col]])) {
+    # Create histogram for numeric columns
+    hist(data[[col]], main = paste("Histogram of", col), xlab = col, col = "lightblue")
+  } else {
+    # Create bar plot for non-numeric columns
+    barplot(table(data[[col]]), main = paste("Bar Plot of", col), xlab = col, col = "lightgreen",las=2)
+  }
+}
+```
+
+## Including Plots
+
+
+```{r}
+# Loop through numeric columns to create overlayed histograms
+for (col in colnames(data)) {
+  if (is.numeric(data[[col]])) {
+    # Set up the plot for the first group
+    hist(data[[col]][data$Gender == unique(data$Gender)[1]], 
+         main = paste("Overlayed Histogram of", col, "by Gender"),
+         xlab = col,
+         col = rgb(0, 0, 1, 0.5),  # Blue with transparency
+         xlim = range(data[[col]]),  # Set limits based on the data
+         breaks = 10)
+
+    # Overlay the histograms for each gender
+    for (filter in unique(data$Gender)[-1]) {  # Skip the first element already plotted
+      hist(data[[col]][data$Gender == filter], 
+           col = rgb(1, 0, 0, 0.5),  # Red with transparency
+           add = TRUE, 
+           breaks = 10)
+    }
+
+    # Add a legend
+    legend("topright", 
+           legend = unique(data$Gender), 
+           fill = c(rgb(0, 0, 1, 0.5), rgb(1, 0, 0, 0.5)))
+  } else {
+    # Bar plot for non-numeric columns
+    data_filtered = data[data[[col]] %in% unique(data[[col]]), ]
+    barplot(table(data_filtered[[col]]), 
+            main = paste("Bar Plot of", col), 
+            xlab = col, 
+            col = "lightgreen", 
+            las = 2)
+  }
+}
+```
+
