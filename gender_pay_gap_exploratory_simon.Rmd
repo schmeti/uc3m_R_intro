@@ -31,6 +31,10 @@ The analysis will begin with a descriptive study of the dataset, where measures 
 
 In the second phase of the project, machine learning methods will be applied to make predictions for Base Pay & Bonus based on the available features using a variety of machine learning libraries like caret and H2O.
 
+## Check Data Contents and Completeness
+
+As an initial step, we review the structure of the diven data by printing the first six rows and checking for missing Values. As can bee seen in the table and the console output, all expected columns are available and now missing values are detected when loading the data from its initial .csv file as a dataframe into the working environment
+
 ```{r}
 # Load Data
 data = data.frame(read.csv("Data/Glassdoor Gender Pay Gap.csv"))
@@ -40,24 +44,42 @@ print(head(data))
 total_missing <- sum(is.na(data))
 print(paste("Total missing values:", total_missing))
 
-
 ```
+Furthermore the kind of values in the individual columns are of interested, which can be further investigated by evaluating the number and types of unique values in each individual column. By doing so, we identify the Columns 
 
+- JobTitle
+- Gender
+- PerfEval
+- Education
+- Dept
+- Seniority
+
+as being discrete through the limited number of unique values they contain as shown in the first part of the console output. This can be validated by further displaying the specific unique values each of theses features can take as a second step (also shown in the second part of the console output).The remaining Features (Columns):
+- Base Pay
+- Bonus
+
+vice versa are therefore continuous features where printing each of the respective (992/941) individual values does not make sense. 
+
+These continious features will thus be of greater interest in the next step, where a frequency analysis is performed on all features.
 
 ```{r}
+print("Number of Unique values")
 for (col in colnames(data)) {
   unique_count <- length(unique(data[[col]]))
-  print(paste0("Unique values in column", col, ":", unique_count))
+  print(paste0("Column '", col, "': ", unique_count))
 }
 
 paste("\n\n")
-
+print("Unique values for discrete fatures:")
 for (col in c("JobTitle","Gender","PerfEval","Education","Dept","Seniority")) {
   unique_values <- unique(data[[col]])
-  cat(paste("Unique values in column", col, ":", paste(unique_values, collapse = ", "), "\n"))
+  cat(paste("Column '", col, "': ", paste(unique_values, collapse = ", "), "\n"))
 }
 
 ```
+## Frequency Analysis
+
+To gain a understanding of the distribution of each feature the next step in data discovery is performing a fre
 
 
 ```{r}
