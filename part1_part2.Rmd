@@ -1,0 +1,1564 @@
+---
+title: "Gender Pay Gap - Data Analytics Project for Master in Statistics for Data Science"
+output:
+  pdf_document:
+    toc: true
+  author: Laura Silvana Alvarez, Simon Schmetz
+date: "2024-31-10"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# HAY QUE ACLARAR SI SE HA USADO CHAT GPT Y DONDE
+# ANALISIS DE COMPONENTES PRINCIPALES
+# PARTE 1: 1° SEMANA DE OCTUBRE
+# PARTE 2: 4° SEMANA DE OCTUBRE
+```
+
+# Introduction
+
+The following document covers the project work done in the context of the course "Introduction into R" in the Master for "Statistics for Data Science" at the Universidad Carlos III de Madrid.
+
+Topic of this project work is analyzing the Kaggel Data set https://www.kaggle.com/datasets/nilimajauhari/glassdoor-analyze-gender-pay-gap taken from the job review website "Glassdoor". 
+
+This project aims to analyze the gender pay gap using this dataset based 1000 Datapoints consisting out of the Features:
+
+- Job Title
+- Gender
+- Age
+- Performance evaluation
+- Education
+- Department
+- Seniority
+- Base Pay [\$/Year]
+- Bonus [\$/Year]
+
+The goal is to explore the relationships between gender and salary, and uncovering further correlations between other features like Seniority the context of unequal compensation in the workplace
+
+The analysis, after an initial review of data contents and completeness,  will begin with a descriptive univariate and bivariate study of the dataset to gain an understanding of the data characteristics. These relationships will be visualized using histograms, box plots, and other graphical representations. In a second step of the exploratory analysis, the main target features Base Pay (Regular anual total salary) and Bonus (yearly bonus payments) are investigated in a statistical analysis, where measures of central tendency, variability, and distribution shape are calculated. And appropriate distribution will be chosen to fit these two features and differences between the two genders regarding these two features are investigated for statistical significance.
+
+In the second phase of the project, machine learning methods will be applied to make predictions for Base Pay & Bonus based on the available features using a variety of machine learning libraries like caret and H2O. As preparation for model selection, a multivariate analysis is done as last step of the exploratory analysis to uncover further cross-dependencies that can be used to improve model performance.
+
+```{r include=FALSE, echo=TRUE}
+# Set of Libraries that are used for the exploratory data analisis
+libraries <- c('data.table', 'dplyr', 'tidyr', 'ggplot2', 'shiny', 'sparklyr',
+               'DBI', 'stellaR', 'readr', 'arrow', 'xgboost', 'caret', 'glmnet',
+               'comet', 'formattable','pleidadis', 'kableExtra', 'targets','h2o',
+               'lubridate', 'gt', 'titanng', 'moments','scales','patchwork',
+               'corrplot', 'patchwork','corrplot', 'mosaic', 'ggmosaic','knitr', 
+               'FactoClass', 'FactoMineR', 'factoextra','randomForest')
+
+
+
+# Check if the respective packages are installed and load them all
+libraries <- setdiff(libraries, (.packages()))
+sapply(libraries, require, character.only = T)
+rm(libraries)
+```
+
+```{r LECTURA BD, include=FALSE}
+# Load Data
+data <- fread(file.path('Data/GlassdoorGenderPayGap.csv'))
+str(data)
+```
+
+# Part 1: Exploratory Data Analysis
+
+As the first part of this project work, an exploratory data analysis will be performed to identify characteristics and correlations of the chosen Data Set.  
+## Data Set Review: Contents and Completeness
+
+As an initial step, a review of the structure of the given data is performed by printing the first six rows and checking for missing Values. As can bee seen in the table and the console output, all expected columns are available and no missing values are detected when loading the data from its initial .csv file as a dataframe into the work environment.
+
+```{r initial_review}
+# Preprocess Data: 
+data$Seniority = as.character(data$Seniority)
+data$PerfEval = as.character(data$PerfEval)
+
+# print Dataframe
+print(head(data))
+
+# Type of variables
+str(data)
+
+# check for missing data
+total_missing <- sum(is.na(data))
+print(paste("Total missing values:", total_missing))
+
+```
+
+The unique kind of values in the individual columns are of interested specifically for categorical features, which can be investigated by evaluating the number and types of (unique) values in each column. By doing so, we identify the Columns 
+
+- JobTitle
+- Gender
+- PerfEval
+- Education
+- Dept
+- Seniority
+
+as being discrete categorical features (as shown in the console output). This can be validated by further displaying the specific unique values each of theses features can take as a second step (also shown in the second part of the console output). The remaining Features (Columns):
+
+- Age
+- Base Pay
+- Bonus
+
+vice versa are continuous features where printing individual values does not make sense. In accordance with the different type of features these both groups represent, different methods have to be utilized in their analysis in the comming steps
+
+```{r unique_values}
+print("Number of Unique values")
+for (col in colnames(data)) {
+  unique_count <- length(unique(data[[col]]))
+  cat(paste("Column '", col, "': ", unique_count,"\n"))
+}
+
+cat("\n\n")
+print("Unique values for discrete fatures:")
+for (col in c("JobTitle","Gender","PerfEval","Education","Dept","Seniority")) {
+  unique_values <- unique(data[[col]])
+  cat(paste("Column '", col, "': ", paste(unique_values, 
+                                          collapse = ", "), "\n"))
+}
+
+```
+
+\newpage
+
+## Descriptive Univariate Frequency Analysis 
+
+To gain a understanding of the distribution of each feature the next step in data discovery is performing a frequency analysis for each variable. First, some frequency tables based on categorical variable levels are shown to review is shown distribution. Then, a visualization of these frequencies is shown. And Finally summary of the distribution of numerical variables with their corresponding graphics.
+
+```{r freq_tables}
+# Selecting categorical variables
+categorical <- data %>% select_if(is.character)
+```
+
+### Frequency Tables
+
+As the first step of the frequency analysis, a selection of Frequency tables is created and analyzed.
+
+```{r formatting_tables}
+# Pretty Tables
+formatting <- function(data) {
+  ints <- data %>% select_if(is.integer) %>% colnames
+  dbs <- setdiff(data %>%  select_if(is.double) %>% colnames, 
+                 c("contribution", "VIF"))
+  data %>% 
+    gt() %>% 
+    tab_options(
+      container.width = 850
+      ,table.font.size = 12
+      ,container.overflow.x = TRUE
+      ,container.overflow.y = TRUE
+      ,column_labels.background.color = "blue"
+    ) %>% 
+    fmt_number(matches(c("vif", "PSI", "Gain", "ETC")), decimals = 4, 
+               use_seps = TRUE) %>% 
+    fmt_number(one_of(ints), decimals = 0, use_seps = T) %>% 
+    fmt_number(one_of(dbs), decimals = 2, use_seps = T) 
+} 
+```
+
+**Job Title (Profession)**
+
+The proportion of population in each of the the Job Titles found in the data set are between the 9\% (*Warehouse Associate*) and 11.8\% (*Marketing Associate*). That means that all of them has similar frequencies (around 100 records).
+
+Also this table shows the diversity of possible Jobs that can be found in the data base, a feature that can be of importance in the moment of comparing payment gaps. 
+
+```{r}
+# frequency tables with pretty format
+as.data.frame(table(categorical[,1]))  %>% 
+  mutate(Prop = percent( (Freq / sum(Freq)))) %>% formatting()
+```
+
+
+**Gender**
+
+The population is almost divided by half of them Male (53\%) and the other half women (47\%).
+
+
+```{r}
+as.data.frame(table(categorical[,2])) %>%
+  mutate(Prop = percent( (Freq / sum(Freq)))) %>% formatting()
+```
+
+
+**Performance Evaluation**
+
+Also the level of seniority is near to be equally distributed between the five different values it could takes. Given representative samples of groups that are expected to have differences in their salaries. 
+
+```{r}
+as.data.frame(table(categorical[,3])) %>% 
+  mutate(Prop = percent( (Freq / sum(Freq)))) %>% formatting()
+```
+
+
+**Education**
+
+Finally the proportion of population that their education level is high school or master is slightly greater than the proportion if PhD or College. Despite this, the data base has a good representation of each level of educational level.
+
+```{r}
+as.data.frame(table(categorical[,4])) %>%
+  mutate(Prop = percent( (Freq / sum(Freq)))) %>% formatting()
+```
+
+
+
+\newpage
+
+### Histograms
+
+The information shown in the frequency tables is visualized as a second step through barplots and histograms to gain and understanding of the proportions shown in the table. While doing so, features are grouped in the categorical and numerical types. 
+
+```{r}
+
+# Init plotting function
+# This Plot was created with support of ChatGPT
+plot_hist = function(data, type = "both", n, m) {
+
+  # Configure subplots
+  par(mfrow = c(n, m),mar = c(10, 4, 4, 1))
+  
+  # Loop through columns
+  for (col in colnames(data)) {
+    # plot numeric columns
+    if (is.numeric(data[[col]]) && (type == "numeric" || type == "both")) {
+      
+      # Set bounds
+      xrange = NULL
+      if (col == "Age") {
+        xrange <- c(10, 70)
+      } else if (col == "BasePay") {
+        xrange <- c(0, 200000)
+      } else if (col == "Bonus") {
+        xrange <- c(0, 13000)
+      }
+      
+      # Create histograms
+      hist(data[[col]], 
+           main = paste(col), 
+           xlab = "",
+           xlim = xrange,
+           col = "dodgerblue4")
+      
+      # plot non-numeric columns
+    } else if (!is.numeric(data[[col]]) && (type == "categoric" 
+                                            || type == "both")) {
+      
+      # Adjust x-axis label arrangement for specific cols
+      xlabel_arrangement = ifelse(col == "JobTitle", 2,
+                                  ifelse(col == "Dept", 2, 1))
+      barplot(table(data[[col]]), 
+              main = paste(col), 
+              xlab = "", 
+              col = "dodgerblue", 
+              las = xlabel_arrangement)
+    }
+  }
+  
+  # Reset the plotting layout
+  par(mfrow = c(1, 1))
+}
+
+```
+
+
+#### Categorical Features
+
+Plotting barplots for the categorical features shows an overall uniform distribution of categories for most features. Further observations are: 
+
+**Job Title** shows a slight overrepresentation of Industry 4.0 (Software, Analytics, etc.), with the dataset in general showing a bias towards digital jobs. This could, among other factors, be attributed to the data source glassdoor which as a plattform leans more towards these kind of industries. The following analysis is thus limited to these industries and can not make statements about more traditional fields like manufacturing. 
+
+**Gender** shows minimal overrepresentation of males. 
+
+**Performance Evaluation, Education, Department, Seniority** do not show any special behaviour beyond the mentioned uniform distribution of these features.
+
+**Overall** all categorical show a somewhat uniform distribution for features which in general, subjectively might not be expected to be uniformly distributed for a simple random sample from the workforce, as generally the same number of Data Scientists and Drivers can be expected from such a simple random sample. It can thus be assumed that the given dataset has been preprocessed to produce the uniform distributions that can be found in the plots. This has to be taken into account when evaluation the findings of this analysis.
+
+```{r, fig.width=8.27, fig.height=10, out.width='100%'}
+# Plot non numeric features
+plot_hist(data = data,type="categoric", n=3, m=2)
+```
+
+#### Numerical Features
+
+The numeric features can be split up in the target features Base Pay and Bonus and the continious variable Age when analysing their respective histograms as to their different distribution shapes. 
+
+**Age** shows a somewhat uniform distribution behavious similarly to the categorical features. This distribution is a further indicator of the processed nature of the dataset as such an even distribution of age can not be expected from raw sample data.
+
+**BasePay and Bonus** show a bell courve like distribution around a mean and with a certain spread, thus potentially showing normally distributed behaviour. This behaviour will be therefore investigated further in univariate and bivariate analysis of the data.
+
+```{r, fig.width=8.27, fig.height=7, out.width='100%'}
+# Plot numeric features
+plot_hist(data = data, type="numeric", n=2, m=2)
+```
+
+
+### Distribution Shapes of Numerical Features
+
+A first analysis of the properties of the distributions of these numerical features are given in the following table. Observing a medium to low spread for all features with low percentage values for Coefficient of Variation (CV), light tailedness (Kurtosis<3) and close to normality (Kurtosis=3) for BasePay and Bonus and overall near symmetric distribution with skewnesses near zero. 
+
+```{r cv_summary, warning=FALSE}
+# Make a descriptive summary of continous variables
+cv_summary <- function(dt){
+  summary <- dt %>% select_all(funs(gsub("_", "", .))) %>% 
+    dplyr::summarise(across(everything(), list(
+      Mean = mean,
+      SD = sd,
+      Variance = var,
+      CV = ~ mean(.)/var(.),
+      Skewness = skewness,
+      Kurtosis = kurtosis
+    )
+    )) %>% 
+    pivot_longer(everything()) %>% separate(name, 
+                                            into = c('feature', 'fun')) %>% 
+    spread(fun, value = value)
+  
+  summary$CV <- percent(summary$CV)
+  
+  return(summary)
+}
+
+```
+
+```{r descriptive_numerical}
+# Apying the Analysis of centrality, variability, and shape
+cv_summary(data %>% select_if(is.numeric)) %>% formatting()
+```
+
+## Descriptive Bivariante Analysis
+
+As second step of the exploratory data analysis, a bivariate analysis is performed to further understand proportions between the different categorical/numerical features like Profession, Age or Seniority among the others present in the data base. The focus will be mainly on gender vs the remaining categorical features to understand how the genders are distributed in those categorical features.
+
+### Gender vs. Profession
+In job titles like software engineer or manager it is a clear difference between male and female, being the males who have the biggest participation in this two categories. This difference could be important for the final analysis, because are areas where the salaries are greater than in Marketing, where the proportion of females is bigger. 
+
+```{r warning=FALSE}
+# Make plot Gender/Profession
+graph <- data %>% group_by(JobTitle, Gender) %>% 
+  summarise(Total = n()) %>% 
+  mutate(Percent = Total/sum(Total))
+
+ggplot(graph, aes(x = JobTitle, y= Percent, fill = Gender)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.85)) +
+  geom_bar(stat = "Identity", alpha = 0.6) +
+  labs(x = "Profession", y = "Percent", fill="Gender") +
+  ggtitle('Distribution of population by Gender and Profession')
+
+```
+
+
+### Gender vs. Seniority
+
+Differently to profession, for seniority a fairly even distribution between the genders can be found in this dataset, even with a slight dominance of women in the highest level (5). While this can not be assumed for the general labour market, for this analysis an unbalance between in seniority to gender correlation does not have to be taken into account.
+
+```{r warning=FALSE}
+# Make plot Gender/Education
+graph <- data %>% group_by(Gender, Seniority) %>% 
+  summarise(Total = n()) %>% 
+  mutate(Percent = Total/sum(Total))
+
+graph$Education <- factor(graph$Seniority, 
+                          levels = c("1", "2", "3", "4", "5" ))
+
+ggplot(graph, aes(x = Gender, y= Percent, fill = Seniority)) +
+  theme(axis.text.x = element_text(angle = 20, vjust = 0.85)) +
+  geom_bar(stat = "Identity", alpha = 0.6) +
+  labs(x = "Gender", y = "Percent", fill="Level of Seniority") +
+  ggtitle('Distribution of population by Gender and Seniority')
+```
+### Gender vs. Education
+
+In general terms, the distribution of each population (male and female) between the different levels of education is similar, there are slightly differences as that more than 50% of the men has Master or Phd, meanwhile in women is the opposite, more than 50% has college or less education. 
+
+```{r warning=FALSE}
+# Make plot Gender/Education
+graph <- data %>% group_by(Gender, Education) %>% 
+  summarise(Total = n()) %>% 
+  mutate(Percent = Total/sum(Total))
+
+graph$Education <- factor(graph$Education, 
+                          levels = c("PhD","Masters","College","High School" ))
+
+ggplot(graph, aes(x = Gender, y= Percent, fill = Education)) +
+  theme(axis.text.x = element_text(angle = 20, vjust = 0.85)) +
+  geom_bar(stat = "Identity", alpha = 0.6) +
+  labs(x = "Gender", y = "Percent", fill="Level of Education") +
+  ggtitle('Distribution of population by Gender and Level of Education')
+```
+
+### Base Payment vs. Age
+
+As one can expect, an upwards trend between Age and Salary (Base Pay) can be seen with a somewhat contentious variance. 
+
+
+```{r}
+model <- lm(BasePay ~ Age, data=data)
+data$predicted_y <- predict(model, newdata = data)
+
+ggplot(data, aes(x=Age, y=BasePay)) +
+  geom_point(alpha= 0.5) +
+  geom_line(aes(y = predicted_y), color = "red", linewidth = 1.3) +
+  labs(x = "Age", y = "Base Payment") +
+  ggtitle('Base Payment by Age')
+```
+
+## Statistical Analysis of gender pay gap in Base Pay and Bonus  {.tabset}
+
+With the main focus of this work being on the topic of analyzing differences between the financial compensation of men and women at work (gender pay gap), the next section will focus on analyzing the features "BasePay" and "Bonus" for statistical significant differences between men and women. This difference is quite apparent when plotting the sample distributions for BasePay filtered on men and women. To further analyze this difference, initially the normality of their distribution will be investigated before further statistical tests (I DONT KNOW WHAT HAPPEND THERE SILVANA PLS EXLAIN) are performed to investigate the significance in the apparent differences in mean BasePay similarity in Bonus. 
+
+In the sample of female and male are distributed in terms of the base payment that they have. In the graph the female distribution is more concentrated in lower values of Payment. But also, most of both populations are distributed in the same values of income. As the difference is not clear with this initial descriptive analysis, an initial check is performed on wether the populations can be consider normally distributed, in order to do a hypothesis test of means differences.
+
+
+```{r}
+ggplot(data, aes(x=BasePay, colour=Gender, fill=Gender)) + 
+  geom_density(alpha= 0.5) +
+  labs(x = "Base Payment", y = "Density", colour="Gender", fill="Gender") +
+  ggtitle('Distribution of the mean Base Pay between Genders')
+```
+
+
+```{r}
+data %>% group_by(Gender) %>%  
+  summarise(mean_base = mean(BasePay),
+            mean_bonus = mean(Bonus)) %>% 
+  formatting()
+```
+
+For the independent sample t test it is needed to check two assumptions:
+
+- Each group is distributed normally
+- The variance of the groups are similar 
+
+### Approximating BasePay and Bonus via Normal distribution
+
+With the shapiro test we can determine that the female population is normally distributed, meanwhile the male population is in the limit of the significance level. For that reason a QQplot analysis and a aproximation to the normal distribution is done.
+
+```{r}
+Female<- data %>% filter(Gender == "Female") 
+Male<- data %>% filter(Gender == "Male") 
+data %>%  group_by(Gender) %>% 
+  select(Gender, BasePay) %>% 
+  mutate(Shapiro_Test = shapiro.test(BasePay)$p.value
+         #,KS = ks.test(BasePay, "pnorm", mean = mean(data), sd = sd(data))$p.value
+         ) %>%
+  select(Gender, Shapiro_Test) %>% unique() %>%as.data.frame()%>% formatting()
+
+q1 <- qqnorm(Female$BasePay, plot.it = FALSE)
+q2 <- qqnorm(Male$BasePay, plot.it = FALSE)
+
+plot(range(q1$x, q2$x), range(q1$y, q2$y), type="n", las=1,
+     xlab='Theoretical Quantiles', ylab='Sample Quantiles') 
+points(q1, pch=19) 
+points(q2, col="red", pch=19) 
+qqline(Female$BasePay, lty='dashed')  
+qqline(Male$BasePay, col="red", lty="dashed") 
+
+legend('topleft', legend=c('Female', 'Male'),
+       col=c('black', 'red'), pch=19)
+```
+
+With the shapiro test showing that the BasePay feature distribution can be well approximated via a normal distribution, a respective visualization with overlay of histogram, normal distribution and standard deviation are created to subjectively verify the test result. Under the assumption that the Bonus feature has a similar distribution characteristic as Base Pay, the visualization is equally created for the Bonus feature. The normal distribution subjectively appears to be a similarly good fit for the distribution of the Bonus. 
+
+
+```{r ,warning=FALSE,fig.width=8.27, fig.height=8, out.width='100%'}
+# Make plot function
+# This Plot was created with support of ChatGPT-4o
+plot_normal <- function(mean, variance, data_frame, column, show_legend = TRUE,
+                        filter = "no filter") {
+  # Make x steps
+  sd <- sqrt(variance)
+  x <- seq(mean - 3*sd, mean + 3*sd, length.out = 1000)
+  y <- dnorm(x, mean = mean, sd = sd)
+  normal_data <- data.frame(x = x, y = y)
+  
+  # Plot
+  p <- ggplot() +
+    # Histogram & Normal
+    geom_histogram(data = data_frame, aes_string(x = column, y = "..density.."), 
+                   bins = 30, fill = "gray", alpha = 0.5, color = "black") +
+                  theme(legend.position = "bottom")+
+
+    geom_line(data = normal_data, aes(x = x, y = y,
+                                      colour = "Normal Distribution"),
+              size = 1) +
+    
+    # Mean & sd lines
+    geom_vline(aes(xintercept = mean, colour = "Mean"), 
+               linetype = "dashed", size = 1) +
+    geom_vline(aes(xintercept = mean + sd, colour = "Standard Deviation"), 
+               linetype = "dotted", size = 1) +
+    geom_vline(aes(xintercept = mean - sd, colour = "Standard Deviation"), 
+               linetype = "dotted", size = 1) +
+  
+    # Cosmetics
+    ggtitle(paste("Normal Distribution with:\nMean =", round(mean, 0),
+                  ", Standard Deviation =", round(sd, 0),"\nfor Feature:",
+                  column, "with filter",filter)) +
+  
+    xlab("[US Dollar/year]") +
+    ylab("Density") +
+    scale_color_manual(name = "Legend", 
+                       values = c("Normal Distribution" = "blue", 
+                                  "Mean" = "red", 
+                                  "Standard Deviation" = "green")) +
+    theme_minimal() +
+    
+    # Hide legend
+    theme(legend.position = if (show_legend) "bottom" else "none") 
+
+  return(p)
+}
+
+```
+
+```{r ,warning=FALSE,fig.width=8.27, fig.height=8, out.width='100%'}
+## Plot hist/normal
+
+# Get dist params
+numerical_summary_male <- cv_summary(
+  data %>% 
+    filter(Gender == "Male") %>% 
+    select_if(is.numeric)
+)
+
+numerical_summary_female <- cv_summary(
+  data %>% 
+    filter(Gender == "Female") %>% 
+    select_if(is.numeric)
+)
+
+# Make plots male
+plot_basepay_male <- plot_normal(
+  mean = numerical_summary_male[numerical_summary_male$feature 
+                                == "BasePay",][["Mean"]], 
+  variance = numerical_summary_male[numerical_summary_male$feature 
+                                    == "BasePay",][["Variance"]],
+  data = data %>% filter(Gender == "Male"),
+  column = "BasePay",
+  filter = "male",
+  show_legend = FALSE  # No legend for the first plot
+)
+
+plot_bonus_male <- plot_normal(
+  mean = 
+    numerical_summary_male[numerical_summary_male$feature == "Bonus",][["Mean"]], 
+  variance = 
+    numerical_summary_male[numerical_summary_male$feature ==
+                             "Bonus",][["Variance"]],
+  data = data %>% filter(Gender == "Male"),
+  column = "Bonus",
+  filter = "male",
+  show_legend = TRUE  # Show legend for the second plot
+)
+
+# Make plots female
+plot_basepay_female <- plot_normal(
+  mean = numerical_summary_female[numerical_summary_female$feature 
+                                  == "BasePay",][["Mean"]], 
+  variance = numerical_summary_female[numerical_summary_female$feature 
+                                      == "BasePay",][["Variance"]],
+  data = data %>% filter(Gender == "Female"),
+  column = "BasePay",
+  filter = "female",
+  show_legend = FALSE  # No legend for the first plot
+)
+
+plot_bonus_female <- plot_normal(
+  mean = numerical_summary_female[numerical_summary_female$feature 
+                                  == "Bonus",][["Mean"]], 
+  variance = numerical_summary_female[numerical_summary_female$feature 
+                                      == "Bonus",][["Variance"]],
+  data = data %>% filter(Gender == "Female"),
+  column = "Bonus",
+  filter = "female",
+  show_legend = FALSE   # Show legend for the second plot
+)
+
+# Combine the plots into one 1x2 layout with shared legend
+final_plot = plot_basepay_male +
+  plot_basepay_female+
+  plot_bonus_male +
+  plot_bonus_female+
+  plot_layout(ncol = 2)
+
+print(final_plot)
+
+```
+
+
+### Test of variance difference
+
+As the variance is in terms of the income squared it can be interpreted to be really different, but if the comparisson is made by the standard deviation that is in \$, it is clear that are similar. This is not unexpected as the similarity can already observed in the normal aproximation done in the previous section.
+
+```{r}
+data %>%  group_by(Gender) %>% summarise(
+   Min = comma(min(BasePay))
+  ,Mean = comma(mean(BasePay))
+  ,Median = comma(median(BasePay))
+  ,Max = comma(max(BasePay))
+  ,SD = comma(sd(BasePay))
+  ,Var = comma(var(BasePay))
+) %>% formatting() %>% 
+  tab_header(title = "Base Payment")
+```
+
+To prove it statistically, a F test is made to compare the two variances:
+
+```{r}
+stats::var.test(x=Female$BasePay, y=Male$BasePay, null.value=1, 
+                alternative="two.sided",
+                conf.level=0.95) # varianzas similares
+```
+
+
+### Mean Base Payment differences between genres
+
+
+
+
+
+### Summary of Statistical Analysis
+
+As the p-value is lower to 0.05, the null hipothesis is rejected and we can conclude that there exist a significance difference between the mean Base Pay of the groups.
+
+```{r}
+boxplot(BasePay ~ Gender, data=data, las=1,
+        xlab='Tratamiento', ylab='Tiempo (min)')
+
+t.test(x=Female$BasePay, y=Male$BasePay, alternative="two.sided", mu=0, 
+       paired=FALSE, var.equal=TRUE, conf.level=0.97)
+```
+
+Having shown that the normal distribution is an appropriate fit to the features BasePay and Bonus, this can be visualized by showing the respective distributions for male and female. Here, it is very aparent that an offset between male and female Base Pay exists, while Bonus does not experience the same kind of offset.
+
+```{r,warning=FALSE,fig.width=8.27, fig.height=3, out.width='100%'}
+# Define the plotting function for tidy normal
+# This Plot was created with support of ChatGPT
+plot_normal_tidy <- function(mean_male, var_male, mean_female, var_female, 
+                             show_legend = TRUE, feature="") {
+  # Calculate standard deviation for male and female
+  sd_male <- sqrt(var_male)
+  sd_female <- sqrt(var_female)
+  
+  # Create x values for both male and female normal distributions
+  x_male <- seq(mean_male - 3 * sd_male, mean_male 
+                + 3 * sd_male, length.out = 1000)
+  x_female <- seq(mean_female - 3 * sd_female, mean_female 
+                  + 3 * sd_female, length.out = 1000)
+  
+  y_male <- dnorm(x_male, mean = mean_male, sd = sd_male)
+  y_female <- dnorm(x_female, mean = mean_female, sd = sd_female)
+  
+  # Create data frames for male and female
+  normal_data_male <- data.frame(x = x_male, y = y_male, group = "Male")
+  normal_data_female <- data.frame(x = x_female, y = y_female, group = "Female")
+  
+  # Combine data frames
+  normal_data <- rbind(normal_data_male, normal_data_female)
+  
+  # Plot
+  p <- ggplot(normal_data, aes(x = x, y = y, colour = group)) +
+    geom_line(size = 1) +
+    
+    # Mean lines for male and female
+    geom_vline(aes(xintercept = mean_male, colour = "Male Mean"),
+               linetype = "dashed", size = 1) +
+    geom_vline(aes(xintercept = mean_female, colour = "Female Mean"), 
+               linetype = "dashed", size = 1) +
+    
+    xlab(paste0(feature, " [US Dollar/year]")) +
+    ylab("Density") +
+    
+    # Control the legend
+    scale_color_manual(name = "Legend", 
+                       values = c("Male" = "blue", 
+                                  "Female" = "purple", 
+                                  "Male Mean" = "red", 
+                                  "Female Mean" = "green")) +
+    theme_minimal() +
+    theme(legend.position = if (show_legend) "right" else "none")  
+  # Hide legend if show_legend is FALSE
+  
+  return(p)
+}
+```
+
+
+```{r, warning=FALSE,fig.width=8.27, fig.height=3, out.width='100%'}
+# Plot
+
+# get params
+numerical_summary_male <- cv_summary(
+  data %>% 
+    filter(Gender == "Male") %>% 
+    select_if(is.numeric)
+)
+
+numerical_summary_female <- cv_summary(
+  data %>% 
+    filter(Gender == "Female") %>% 
+    select_if(is.numeric)
+)
+
+# make plots
+feature = "BasePay"
+plot_normal_basepay_tidy_male=plot_normal_tidy(
+  mean_male = numerical_summary_male[numerical_summary_male$feature 
+                                     == feature,][["Mean"]], 
+  var_male = numerical_summary_male[numerical_summary_male$feature 
+                                    == feature,][["Variance"]], 
+  mean_female = numerical_summary_female[numerical_summary_female$feature 
+                                         == feature,][["Mean"]], 
+  var_female = numerical_summary_female[numerical_summary_female$feature 
+                                        == feature,][["Variance"]],
+  show_legend=FALSE,
+  feature=feature
+)
+
+feature = "Bonus"
+plot_normal_basepay_tidy_female=plot_normal_tidy(
+  mean_male = numerical_summary_male[numerical_summary_male$feature 
+                                     == feature,][["Mean"]], 
+  var_male = numerical_summary_male[numerical_summary_male$feature 
+                                    == feature,][["Variance"]], 
+  mean_female = numerical_summary_female[numerical_summary_female$feature 
+                                         == feature,][["Mean"]], 
+  var_female = numerical_summary_female[numerical_summary_female$feature 
+                                        == feature,][["Variance"]],
+  feature=feature
+)
+
+# join and print plots
+final_plot <- plot_normal_basepay_tidy_male+
+  plot_normal_basepay_tidy_female+
+  plot_layout(ncol = 2)
+print(final_plot)
+
+```
+
+
+With these results, the next step is therefore to further investigate correlations between BasePay and other features of the dataset.
+
+
+## Multivariate Analysis
+
+To extend the analysis in order to determine possible features that affects the difference found in the statistical analysis, this section presents a multivariate analysis between the gender, base payment and other features in the dataset. The findings of this section may be used in modelling the correlations in the second part of this project to make machine learning prediction
+
+### Corelation Matrix
+
+As an initial step, a correlation matrix is plotted to get an overview of relationships between the features. The Matrix shows correlations
+that have already been explored in the bivariate analysis like the strong correlation between BasePay and Age. Further multivariate correlations are going to analyzed in the following sections.
+
+```{r warning=FALSE,fig.width=8.27, fig.height=5, out.width='100%'}
+data <- data %>% select(-c(predicted_y))
+## Plot correlation Matrix       
+# Convert Categorical Variables to Numeric Using Label Encoding
+data_encoded <- data %>%
+  mutate(across(where(is.character), ~ as.numeric(factor(.))))
+correlations <- cor(data_encoded)
+# Plot
+corrplot(correlations, method = "circle", addCoef.col = "black", type = "upper", 
+         order = "hclust", tl.col = "black", tl.srt = 45)
+  
+```
+
+### Mosaic Plot
+
+From the mosaic plot we can conclude that the seniority and the educational level do not have a relation in neither of the genders (male and female).
+```{r warning=FALSE,fig.width=8.27, fig.height=5, out.width='100%'}
+ggplot(data) +
+  geom_mosaic(aes(x = product(Education, Gender), 
+                  fill = Seniority)) +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.85)) +
+  labs(title = "Mosaic Plot of Education, Gender and Seniority",
+       x = "Gender",
+       fill = "Seniority")
+```
+
+### Gender vs. Age and respective Salary
+
+Plotting the Base Pay over age and separating for the respective genders shows that the difference in Base Pay between the genders stays more or lesse constant over the entire age range, having neither a obvious divergent nor convergent characteristic. A similarly might be identified for the 20-30 year old age range with a very light divergence with growing age but the sample size might not be sufficient to identify a pattern.  
+
+```{r warning=FALSE}
+graph <- data %>% group_by(Age, Gender) %>% 
+  summarise(mean_salary = mean(BasePay))
+
+ggplot(graph, aes(x = Age, y= mean_salary, fill = Gender)) +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  geom_line(stat = "Identity", aes(colour = Gender)) +
+  labs(x = "Age", y = "Mean Salary", fill="Gender") +
+  ggtitle('Distribution of Mean Salary by Gender and Age')
+
+```
+
+### Gender vs. Seniority and respective Salary
+
+Plotting a distribution of Base Pay vs Seniority shows a continious increase of Salaray with increase in seniority with a constantly higher compensation for male workers but no apparent difference in the delta between the two genders can be identified across the seniority levels 
+
+```{r warning=FALSE}
+graph <- data %>% group_by(Seniority, Gender) %>% 
+  summarise(mean_salary = mean(BasePay))
+
+ggplot(graph, aes(x = Seniority, y= mean_salary, fill = Gender)) +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  geom_bar(stat = "Identity", alpha = 0.6, position=position_dodge()) +
+  labs(x = "Seniority", y = "Mean Salary", fill="Gender") +
+  ggtitle('Distribution of Mean Salary by Gender and Seniority')
+
+```
+
+Plotting this relation as a Violin Plot shows a further interesting characteristic, which is that both genders seem to have a the majority of their distributions in the same area but the male workers appear to overextend with some upper limit outliers. This might be attributed to women generally appearing to being less aggressive in salary negotiations as discussed in (https://gap.hks.harvard.edu/do-women-avoid-salary-negotiations-evidence-large-scale-natural-field-experiment#:~:text=Over%20the%20past%20two%20decades,are%20as%20successful%20as%20men.)
+
+```{r, warning=FALSE, fig.width=8.27, fig.height=7, out.width='80%'}
+qplot(BasePay, Seniority, data = data, geom="violin", fill = Gender)
+```
+
+### Gender vs. Job Title and respective Salary
+
+Plotting Profession over Salary for the two genders, paints a fairly consistent picture with women mostly setting the lower bound and no significant differences between professions apart from Software Engineering.
+
+```{r, fig.width=8.27, fig.height=8, out.width='100%', warning=FALSE}
+qplot(BasePay, JobTitle, data = data, geom="violin", fill = Gender)
+```
+
+### Gender vs. Educational Level and respective Salary
+
+Likewise no significant difference for the gender pay gap can be found wen reviewing the relationship between Salary, Educational level and gender.
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+qplot(BasePay, Education, data = data, geom="violin", fill = Gender)
+```
+
+
+### Gender vs. Department and respective Salary
+
+As the data base is balanced for most of the variables, the contingency table below do not add new information about the distribution of the population besides that the are more males un management positions. 
+
+```{r}
+contingency_table <- table(data$Gender, data$Dept)  # create contingency table
+(contingency_table <- addmargins(contingency_table)) # add totals
+
+```
+
+```{r}
+data %>% group_by(Dept) %>%  
+  summarise(mean_base = mean(BasePay),
+            mean_bonus = mean(Bonus))%>% 
+  formatting()
+
+```
+
+Lastly, reviewing differences between Salary, Gender and Department, a similiar effect regarding negotiation can be seen in departments as the ones most prone to negotiation in salary (Management & Sales) show a upper extension for male workers. This difference is not reflected in their respective means.
+
+```{r warning=FALSE}
+graph <- data %>% group_by(Dept, Gender) %>% 
+  summarise(mean_salary = mean(BasePay))
+
+ggplot(graph, aes(x = Dept, y= mean_salary, fill = Gender)) +
+  theme(axis.text.x = element_text(angle = 30, vjust = 0.5)) +
+  geom_bar(stat = "Identity", alpha = 0.6, position=position_dodge()) +
+  labs(x = "Department", y = "Mean Salary", fill="Gender") +
+  ggtitle('Distribution of Mean Salary by Gender and Department')
+
+```
+
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+qplot(BasePay, Dept, data = data, geom="violin", fill = Gender)
+```
+
+## Summary Exploratory Data Analysis 
+
+Overall, this analysis revealed a persistent pay disparity between genders across different demographics and professional attributes.
+
+The correlation matrix indicated significant relationships between numerical variables, suggesting that certain features—such as age and seniority—may influence salary outcomes. Notably, our findings showed that while salaries generally increased with age and seniority, the gender pay gap remained consistent, indicating that male employees often earn more than their female counterparts, regardless of level of Seniority or Professions. This indicates, that the main correlation contributing to the delta in wages is indeed the gender itself. 
+
+As the second part of this project, an attempt will no be made to use machine learning models to predict salaries based on the correlations found in the exploratory data analysis. 
+
+\newpage
+
+# Part 2: Application of Machine Learning Models
+
+In the second part of this project, a series of machine learning models will be applied to the same data that was subject of the exploratory data analysis in Part 1 one. The goal of this second part is to evaluate how well the data is suited to train models and make predictions with these models. To investigate this, a set of functions is set up to create a train/predict/test pipeline that will be reused throughout most of the applied models. The model types choosen for comparison are:
+
+- Linear Regression
+- Principal Component Analysis (PCA)
+- Gradient Boosting Machine
+- Neural Network
+
+and one ensemble model:
+
+- mean of multiple models
+
+The performance of these models is evaluated through scoring with the following scores:
+
+- Mean Average Error (MAE) 
+- Mean Sqaured Error
+- Root Mean Squared Error (RMSE)
+- Mean Percentage Error (MPE)
+
+The following sections start with a section to set up the functions that compose the pipeline before after verifying the train-test split the following sections each show the application of one of the listed models.
+
+## Set up Pipeline
+
+This section contains the functions that will be used across the application of all models. The processing pipeline consist out of the three steps:
+
+1. train_test_split (separates the test data into a test set and set)
+2. train (trains the model, this step is very individual to the model and thus will be implemented in the respective section )
+3. predict_and_score (this predicts for the test data and scores the prediction)
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+# Train-test split (70% train, 30% test)
+train_test_split <- function(data, feature) {
+  train_index <- createDataPartition(data[[feature]], p = 0.7, list = FALSE)
+  train_data <- data[train_index, ]
+  test_data <- data[-train_index, ]
+  return(list(train_data = train_data, test_data = test_data)) # Fixed return
+}
+
+# Function to predict and score
+predict_and_score <- function(model, test_data, print = FALSE) {
+  predictions <- predict(model, newdata = test_data)
+  results <- test_data %>% mutate(Predicted = predictions)
+  
+  mae <- mean(abs(predictions - test_data$BasePay))
+  mse <- mean((predictions - test_data$BasePay)^2)
+  rmse <- sqrt(mse)
+  mpe <- mean((predictions - test_data$BasePay) / test_data$BasePay) * 100
+  
+  # Make df
+  metrics <- data.frame(
+    Metric = c("MAE", "MSE", "RMSE", "MPE"),
+    Value = c(mae, mse, rmse, mpe)
+  )
+  # Print
+  if (print){
+      print(kable(metrics, format = "pipe", col.names = c("Metric", "Value")))
+  }
+  return(list(MAE = mae, MSE = mse, RMSE = rmse, MPE = mpe, Results = results))
+}
+```
+
+Furthermore, a set of basic plotting functions is set up to visualize the prediction results.
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+### Pointplots
+# Plot Predicted vs Actual
+pred_vs_test = function(results,feature,title_extension="")
+  ggplot(results, aes(x = results[[feature]], y = results$Predicted)) +
+    geom_point(color = 'blue', size = 3) +       # points for actual vs predicted
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") + # 45-degree line
+    labs(title = paste("Predicted vs Actual",feature,title_extension),
+         x = paste("Actual",feature),
+         y = "Predicted" ) +
+    theme_minimal() +
+    xlim(min(results[[feature]], results$Predicted) - 5000, max(results[[feature]], results$Predicted) + 5000) +
+    ylim(min(results[[feature]], results$Predicted) - 5000, max(results[[feature]], results$Predicted) + 5000)
+
+# Plot Predicted vs Actual by Gender
+plot_predicted_vs_actual <- function(data) {
+  # Create the plot
+  ggplot(data, aes(x = BasePay, y = Predicted, color = Gender)) +
+    geom_point(aes(shape = Gender), size = 3, alpha = 0.6) + # Points for predicted values
+    geom_smooth(method = "lm", aes(fill = Gender), alpha = 0.1) + # Add regression lines
+    labs(title = "Predicted vs Actual BasePay by Gender",
+         x = "Actual BasePay",
+         y = "Predicted Values") +
+    theme_minimal() +
+    theme(legend.position = "top") +
+    scale_color_manual(values = c("Male" = "blue", "Female" = "pink")) # Customize colors
+}
+
+# Plot Predicted vs Actual for age
+plot_age_vs_predicted_actual <- function(data, feature) {
+  feature_sym <- sym(feature)  # Convert feature name to a symbol
+  
+  ggplot(data) +
+    # Points for actual values
+    geom_point(aes(x = Age, y = !!feature_sym, color = Gender, shape = "Actual"), size = 3, alpha = 0.6) +
+    # Points for predicted values
+    geom_point(aes(x = Age, y = Predicted, color = Gender, shape = "Predicted"), size = 3, alpha = 0.6) +
+    # Add regression lines for actual and predicted values
+    labs(title = "Predicted and Actual Values vs Age by Gender",
+         x = "Age",
+         y = paste("Values", feature)) +  # Fixed string concatenation
+    theme_minimal() +
+    theme(legend.position = "top") +
+    scale_color_manual(values = c("Male" = "blue", "Female" = "pink")) +  # Customize colors
+    scale_shape_manual(name = "Value Type", values = c("Actual" = 16, "Predicted" = 17))  # Different shapes for predicted and actual
+}
+
+```
+
+
+## Train - Test Split
+
+For the following applications of machine learning, the train-test split function from the pipeline is used . Where 70\% of the data is going to be used to train the models, and the 30\% left to test them.
+
+First it is verified that the mean of the numeric values is similar between the two groups, and then, that the distribution of the target variable (Base Payment) also behaves similar. With that checked, the machine learning models can be fitted. 
+
+```{r}
+
+# train/test split
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+
+data2<- rbind(train_data %>% mutate(ind = "train"),
+              test_data %>%  mutate(ind = "test"))
+
+data2 %>% group_by(ind) %>%  
+  summarise(n = n()
+           ,mean_age = round(mean(Age),0)
+           ,mean_seniority = round(mean(Seniority),0)
+           ,mean_salary = round(mean(BasePay),2)
+           ,mean_bonus = round(mean(Bonus),2)) %>% 
+  formatting()
+```
+
+```{r}
+ggplot(data2, aes(x=BasePay, colour=ind, fill=ind)) + 
+  geom_density(alpha= 0.5) +
+  labs(x = "Base Payment", y = "Density", colour="ind", fill="ind") +
+  ggtitle('Distribution of the mean Base Pay between train-test')
+```
+
+## Applying individual Models
+
+After having shown that the split data sets retain the properties of the initial data set, the models are applied and their performance evaluated in the following sections
+
+### Linear Model
+
+The linear model represents a multivariate linear regression model which consist of fitting a linear function to the different dimensions of the data set. The model lis fitted to the corresponding target dimension "BasePay" with the relevant features and in scoring shows a fairly good performance with a mean percentage error of less then 4 \%.  Plotting the real output vs the predicted shows that for very high values of BasePay tends to under predict and separately visualizing for men and women, the slightly different distribution of salaries already investigated in part can be observed. Likewise plotting the prediction/test vs age showsa similiar pattern with the known linear correlation to age.
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+### Run pipeline
+# train/test split
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+
+# fit
+model_formula=BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority
+model <- lm(model_formula, data = train_data)
+
+# predict and score
+results = predict_and_score(model, test_data,print = T)
+
+# Plot
+pred_vs_test(results$Results,feature="BasePay",title_extension="in general")
+plot_predicted_vs_actual(results$Results)
+plot_age_vs_predicted_actual(results$Results, feature = "BasePay")
+```
+
+To investigate how well the model is fit to the data, a learning curve can be created by repeatedly fitting the model to an training set that is increasing in size for every iteration. By plotting a score like the RMSE over the iterations the improvement in model performance can be observed over different training set sizes. FOr the linear model, a very typical quick improvement as linear models are able to give good performance with little data due to their simplicity (e.g. few degrees of freedom). The learning curve also shows that no significant model performance boost can be expected from further data from the same population as a steady state in model performance has been more or less reached.
+
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+# Learning curve fcn
+learning_curve_linear_regression <- function(data, model_formula, test_data, step_size = 0.1) {
+  # Initialize vectors to store results
+  train_sizes <- seq(0.1, 1, by = step_size)
+  results <- data.frame(TrainSize = numeric(), MAE = numeric(), RMSE = numeric())
+  
+  for (size in train_sizes) {
+    # Sample the training data
+    train_index <- createDataPartition(data$BasePay, p = size, list = FALSE)
+    train_sample <- data[train_index, ]
+    
+    # Fit & Predict the model
+    model <- lm(model_formula, data = train_sample)
+    scores <- predict_and_score(model, test_data)
+    results <- rbind(results, data.frame(TrainSize = size, MAE = scores$MAE, RMSE = scores$RMSE))
+  }
+  
+  # Plot the learning curve
+  ggplot(results, aes(x = TrainSize)) +
+    geom_line(aes(y = RMSE, color = "RMSE")) +
+    labs(title = "Learning Curve",
+         x = "Training Set Size (Proportion)",
+         y = "Error",
+         color = "Metric") +
+    theme_minimal()
+}
+
+# Call the function to plot the learning curve
+model_formula=BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority
+learning_curve_linear_regression(data, model_formula=model_formula, test_data)
+```
+
+
+### Principal Component Analysis
+
+The principal component analysis is a statistical technique that is used for dimensionally reduction. The process is based on the convariance matrix, and the eigen values and vectors. PCA steps are described as follows:
+
+1. **Standardization:** Scale the data so that each feature has a mean of zero and a standard deviation of one. This ensures that PCA is not biased towards features with larger ranges.
+
+2. **Covariance Matrix Computation:** Calculate the covariance matrix to understand how the variables relate to one another.
+
+3. **Eigenvalue and Eigenvector Calculation:** Determine the eigenvalues and eigenvectors of the covariance matrix. The eigenvalues indicate the amount of variance captured by each principal component, while the eigenvectors show the direction of these components.
+
+4. **Selecting Principal Components:** Choose the top k eigenvectors (principal components) based on their eigenvalues to form a new feature space. This reduces the dimensionality of the data while retaining the most significant features.
+
+5. **Transformation:** Project the original data onto the new feature space formed by the selected principal components
+
+In this project we have 5 numerical variables avaiable to do the PCA. That means that the maximum number of possible principal components are five.
+
+We obtained that the first component have the 41.2\% of the information, and that the first plane (component 1 and 2) has the 74.4\% of the information. As it is a huge percentage of the variance, we are going to work with this 2 axes, that means that the dimension has been reduced from $\mathbb{R}^5$ to $\mathbb{R}^2$.
+
+Also we can display the information of each observation, as the coordinates and the contributions in the new axes. 
+
+```{r}
+data <- fread(file.path('Data/GlassdoorGenderPayGap.csv'))
+str(data)
+
+# Split data into train and test sets
+set.seed(1234)
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+
+data_pca <- train_data %>%  select_if(is.numeric)
+
+pca_model <- PCA(data_pca, ncp = 5, graph = F)
+
+cumsum(pca_model$eig[, 2])
+summary(pca_model)
+```
+
+```{r}
+# Example of creating a scree plot in R
+plot(pca_model$eig[, 1], type = "b", main = "Scree Plot", xlab = "Dimensions", ylab = "Eigenvalues")
+```
+
+#### Individuals Plot
+
+It is observed that the indivuals are distributed around the origin, with a space around $pc2=0$ and as the distance is increasing from the origin, there are less individuals. 
+
+```{r}
+pca_model <- PCA(data_pca, ncp = 2, graph = F)
+# Plot individuals
+plot(pca_model, choix = "ind", col.ind = "blue")
+```
+
+#### Variable contribution
+
+The following polar plot presents the contribution of the variables to the axes. If the row is near to the circumference it means that have a bigger contribution than it is close to the origin. 
+
+Also the direction of each vector represents in wich axe is contributing more. If it is perpendicular to the PC1, contributes to the PC2, and if it is more parallel to PC1, contributes more to that principal component.
+
+In our case Base Pay and Bonus are the variables with more contribution in general, but for the second axis Seniority variable is the most important one. On the other hand Age does not give that much information in comparisson to the other variables. 
+
+```{r}
+# Plot variables
+plot(pca_model, choix = "var", col.var = "red")
+```
+
+#### Gender in the PCA
+
+We saw that the representation of the data in the new plane, does not make any difference between the genders. That means that even though if the gender affects the base pay (as found in the previous section), the combination of the numeric variables does not allow us to predict the gender. 
+
+```{r}
+train_data$Gender <- as.factor(train_data$Gender)
+
+# Plot individuals with colors based on the categorical variable
+fviz_pca_ind(pca_model, 
+             geom.ind = "point", # Use points for individuals
+             col.ind = train_data$Gender, # Color by categorical variable
+             palette = "jco", # Color palette
+             addEllipses = TRUE, # Add confidence ellipses
+             legend.title = "Category") +
+  labs(title = "PCA: Individuals Colored by Category")
+```
+
+
+### XGBoost
+
+XGBoost (Extreme Gradient Boosting) uses a boosting approach, where models are built sequentially. Each new model corrects the errors made by the previous ones, leading to improved performance. It also have some other important properties:
+
+ - **Gradient Boosting Framework:** It employs gradient boosting, which optimizes a loss function by adding new models that minimize the residual errors of the current ensemble.
+
+- **Regularization:** XGBoost includes L1 (Lasso) and L2 (Ridge) regularization, which helps prevent overfitting and improves model generalization.
+
+- **Handling Missing Values:** The algorithm can automatically handle missing values during training, which simplifies preprocessing.
+
+- **Tree Pruning:** It has the "max depth" parameter in order to prevent overfitting, enhancing the robustness of the model.
+
+-- **Feature Importance:** After training, XGBoost provides insights into feature importance, helping to understand which features contribute most to predictions.
+
+```{r}
+library(xgboost)
+library(caret)
+library(Matrix)
+library(dplyr)
+# 
+trainData = train_data %>% select_if(is.numeric)
+testData = test_data  %>% select_if(is.numeric)
+
+# Define the target variable
+target <- trainData$BasePay
+features <- trainData %>% select(-c("BasePay"))
+
+target_test <- testData$BasePay
+features_test <- testData %>%  select(-c("BasePay"))
+
+# Convert the data into a matrix
+dtrain <- xgb.DMatrix(data = as.matrix(features), label = target)
+dtest <- xgb.DMatrix(data = as.matrix(features_test), label = target_test)
+
+```
+
+#### Parameter Tunning
+
+In order to identify the parameters to tune for the XGBoost model (Learning rate (eta), Max depth of trees, Subsample, Colsample_bytree, Gamma (minimum loss reduction), etc) we implement the Bayesian optimization. 
+
+The Bayesian optimization builds a surrogate model to predict the performance of hyperparameters and uses this model to guide the search.
+   
+   - **Surrogate Model**: Used to model the objective function.
+   
+   - **Acquisition Function**: This function decides where to sample next based on the surrogate model, balancing exploration (trying new areas) and exploitation (refining known good areas).
+   
+   - **Initial Sampling**: Start with a few random combinations of hyperparameters to gather initial data.
+   
+   - **Iterate**: Use the surrogate model to predict performance for different hyperparameter settings, select the best candidates using the acquisition function, and evaluate their performance on the validation set.
+   - **Update Model**: Incorporate the results into the surrogate model to refine future predictions.
+   
+   - Stop the process after a predefined number of iterations or when the improvement in performance becomes marginal.
+
+This approach often improves the model accuracy and robustness. The results obtained for our model are:
+
+\begin{table}[h]
+    \centering
+    \begin{tabular}{|c|c|c|c|}
+        \hline
+         \textbf{eta} & \textbf{max\_depth} & \textbf{subsample} & \textbf{colsample\_bytree} \\
+        \hline
+        0.291 & 5.0 & 0.856 & 1 \\
+        \hline
+    \end{tabular}
+\end{table}
+
+
+```{r, eval=FALSE}
+library(rBayesianOptimization)
+
+# Define a function to optimize
+opt_function <- function(eta, max_depth, subsample, colsample_bytree) {
+  params <- list(
+    objective = "reg:squarederror",
+    eta = eta,
+    max_depth = as.integer(max_depth),
+    subsample = subsample,
+    colsample_bytree = colsample_bytree
+  )
+
+  model <- xgb.train(params = params, data = dtrain, nrounds = 100)
+  pred <- predict(model, dtrain)
+  rmse <- sqrt(mean((pred - target)^2))
+
+  return(list(Score = -rmse, Pred = NULL)) # Negative RMSE for maximization
+}
+
+# Run Bayesian Optimization
+bounds <- list(eta = c(0.01, 0.3), max_depth = c(3L, 5L),
+               subsample = c(0.5, 1), colsample_bytree = c(0.5, 1))
+
+results <- BayesianOptimization(
+  opt_function,
+  bounds = bounds,
+  init_points = 5,
+  n_iter = 25
+)
+
+print(results)
+
+saveRDS(results, "parametersXGB.RDS")
+```
+
+```{r}
+results<- readRDS("parametersXGB.RDS")
+params<- results["Best_Par"]
+```
+
+
+```{r}
+nrounds <- 100  # Number of boosting rounds
+
+xgb_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = nrounds
+)
+
+# Assume new_data is your new dataset
+new_data <- as.matrix(testData %>%select(-c("BasePay")))  # Convert new data to matrix
+dnew <- xgb.DMatrix(data = new_data)
+predictions <- predict(xgb_model, dnew)
+
+#model$feature_names
+#colnames(new_data)
+
+# Calculate RMSE on training data
+train_predictions <- predict(xgb_model, dtrain)
+rmse <- sqrt(mean((train_predictions - target)^2))
+print(paste("RMSE:", rmse))
+
+xgb.save(xgb_model, "xgb_model.bin")
+```
+In this case the Age is the numeric value with most importance, followed by the seniority and the bonus. It is logical taking into account that our target variable is the base Pay.
+
+```{r}
+importance <- xgb.importance(model = xgb_model)
+xgb.plot.importance(importance_matrix = importance)
+
+```
+```{r}
+predictions <- predict(xgb_model, dtest)
+
+results <- data.frame(
+  BasePay = testData$BasePay,
+  Age = testData$Age,
+  Gender = test_data$Gender,
+  Predicted = predictions
+)
+```
+
+```{r}
+# Plot Predicted vs Actual
+pred_vs_test_xgb <- function(results, feature, title_extension = "") {
+  ggplot(results, aes(x = results[[feature]], y = results$Predicted)) +
+    geom_point(color = 'blue', size = 3) +       # points for actual vs predicted
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") + # 45-degree line
+    labs(title = paste("Predicted vs Actual", feature, title_extension),
+         x = paste("Actual", feature),
+         y = "Predicted") +
+    theme_minimal() +
+    xlim(min(results[[feature]], results$Predicted) - 5000, 
+         max(results[[feature]], results$Predicted) + 5000) +
+    ylim(min(results[[feature]], results$Predicted) - 5000, 
+         max(results[[feature]], results$Predicted) + 5000)
+}
+
+# Plot Predicted vs Actual by Gender
+plot_predicted_vs_actual_xgb <- function(data) {
+  ggplot(data, aes(x = BasePay, y = Predicted, color = Gender)) +
+    geom_point(aes(shape = Gender), size = 3, alpha = 0.6) + # Points for predicted values
+    geom_smooth(method = "lm", aes(fill = Gender), alpha = 0.1) + # Add regression lines
+    labs(title = "Predicted vs Actual BasePay by Gender",
+         x = "Actual BasePay",
+         y = "Predicted Values") +
+    theme_minimal() +
+    theme(legend.position = "top") +
+    scale_color_manual(values = c("Male" = "blue", "Female" = "pink")) # Customize colors
+}
+
+# Plot Predicted vs Actual for Age
+plot_age_vs_predicted_actual_xgb <- function(data, feature) {
+  feature_sym <- rlang::sym(feature)  # Convert feature name to a symbol
+  
+  ggplot(data) +
+    geom_point(aes(x = Age, y = !!feature_sym, color = Gender, shape = "Actual"), size = 3, alpha = 0.6) +
+    geom_point(aes(x = Age, y = Predicted, color = Gender, shape = "Predicted"), size = 3, alpha = 0.6) +
+    labs(title = "Predicted and Actual Values vs Age by Gender",
+         x = "Age",
+         y = paste("Values", feature)) +
+    theme_minimal() +
+    theme(legend.position = "top") +
+    scale_color_manual(values = c("Male" = "blue", "Female" = "pink")) +
+    scale_shape_manual(name = "Value Type", values = c("Actual" = 16, "Predicted" = 17))
+}
+
+library(dplyr)
+library(knitr)
+
+predict_and_score_xgb <- function(model, test_data, print = FALSE) {
+  # Ensure test_data has the right structure (numeric encoding)
+  if ("Gender" %in% colnames(test_data)) {
+    test_data$Gender <- as.numeric(as.factor(test_data$Gender)) - 1  # Convert to 0/1
+  }
+  
+  # Make predictions
+  predictions <- predict(model, newdata = as.matrix(test_data[, -which(names(test_data) == "BasePay")]))
+  
+  # Create results data frame with predictions
+  results <- test_data %>% mutate(Predicted = predictions)
+  
+  # Calculate metrics
+  mae <- mean(abs(predictions - test_data$BasePay))
+  mse <- mean((predictions - test_data$BasePay)^2)
+  rmse <- sqrt(mse)
+  mpe <- mean((predictions - test_data$BasePay) / test_data$BasePay) * 100
+  
+  # Create metrics data frame
+  metrics <- data.frame(
+    Metric = c("MAE", "MSE", "RMSE", "MPE"),
+    Value = c(mae, mse, rmse, mpe)
+  )
+  
+  # Print metrics if required
+  if (print) {
+    print(kable(metrics, format = "pipe", col.names = c("Metric", "Value")))
+  }
+  
+  # Return metrics and results
+  return(list(MAE = mae, MSE = mse, RMSE = rmse, MPE = mpe, Results = results))
+}
+
+```
+
+```{r}
+# Predicted vs Actual for BasePay
+pred_vs_test_xgb(results, "BasePay", " for BasePay")
+
+# Predicted vs Actual by Gender
+plot_predicted_vs_actual_xgb(results)
+
+# Predicted vs Actual for Age
+plot_age_vs_predicted_actual_xgb(results, "BasePay")
+
+results <- predict_and_score_xgb(xgb_model, test_data, print = TRUE)
+
+```
+
+
+### Neural Network
+
+Neural networks are models built to recognize patterns, loosely inspired by how the brain processes information. They’re made up of layers of nodes, where each layer picks up on more complex features in the data. eurons in a neural network get activated when they receive inputs that, after being weighted and summed, surpass a certain threshold. This output then passes through an activation function, which determines the strength and form of the signal sent to the next layer. This process allows the network to focus on key patterns in the data, building complexity layer by layer. 
+
+A challenge with neural networks can be that interpretation of the resulting models can be difficult as neurons with weights don't carry meaning for humans and are difficult to visualize. That is many neural networks end up as black-boxes for users. Likewise the neural network trained in this subsection shows some unwanted and inexplicable behavior as very visible in the respective visualizations. With optimization via "tuneGrid" performed, the results unsatisfactory and not sufficient background knowledge regarding neural networks available to perform further investigation into the reasons, the Neural Networks model will thus be discarded. 
+
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+
+set.seed(123)
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+
+# Train neural network model
+model <- train(
+  as.formula(BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority),
+  data = train_data,
+  method = "nnet",
+  tuneGrid = expand.grid(size = c(5, 10, 20), decay = c(0.1, 0.5, 1)),
+  linout = TRUE, # linear output for regression
+  trace = FALSE,
+  trControl = trainControl(method = "repeatedcv", number = 5, repeats = 10)
+)
+
+# Predict and score the model on test data
+results = predict_and_score(model, test_data, print = TRUE)
+
+# Plot
+pred_vs_test(results$Results,feature="BasePay",title_extension="in general")
+plot_predicted_vs_actual(results$Results)
+plot_age_vs_predicted_actual(results$Results, feature = "BasePay")
+
+```
+
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+expand.grid(size = 10, decay = 0.1)
+```
+
+## Ensemble Model
+
+As last prediction method, an ensemble model will be used to generate a ideally improved prediction compared to individual models. In this case, the ensemble is the mean of a chosen selection of models, mode specifically in this case the mean of the following models:
+
+- linear model
+- XGBoost
+- Random Forest (added as third composite model)
+
+The results are compared with the linear model as baseline. In the following piece of code, the train test split is performed to seperate the data set. 
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+
+### Run pipeline
+# train/test split
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+```
+
+Then, the linear model is fit an scored as baseline.
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+
+# fit
+model_formula=BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority
+model <- lm(model_formula, data = train_data)
+
+# predict and score
+results = predict_and_score(model, test_data,print = T)
+
+```
+
+With everything set up, the ensemble is trained and predicted on the same test data as the baseline. The results show that the ensemble model seemeingly is not able to improve performance siginificantly beyond the linear baseline and the linear model seems to be the model best fit to the correlations found in the data. This is in line with the results of the initial exploratory data analysis where primarily linear relationships between features were identified. 
+
+
+```{r, fig.width=8.27, fig.height=7, out.width='80%'}
+### Run pipeline
+# train/test split
+split_data <- train_test_split(data, feature = "BasePay")
+train_data <- split_data$train_data
+test_data <- split_data$test_data
+
+# fit Linear model
+model_formula=BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority
+linear_model <- lm(model_formula, data = train_data)
+
+# fit xgboost
+
+
+
+# fit random forest
+model_formula <- BasePay ~ Gender + Age + PerfEval + Education + Dept + Seniority
+train_control <- trainControl(method = "cv", number = 3) 
+random_forest_model <- train(
+  model_formula,
+  data = train_data,
+  method = "rf",
+  trControl = train_control,
+  tuneLength = 5  # This will test 5 different mtry values
+)
+
+
+# predict and score from ensemble
+ensemble = function(models,test_data,print=F){
+  predictions <- sapply(models, function(model) predict(model, test_data))
+  avg_predictions <- rowMeans(predictions)
+  results <- test_data %>% mutate(Predicted = avg_predictions)
+  
+  mae <- mean(abs(avg_predictions - test_data$BasePay))
+  mse <- mean((avg_predictions - test_data$BasePay)^2)
+  rmse <- sqrt(mse)
+  mpe <- mean((avg_predictions - test_data$BasePay) / test_data$BasePay) * 100
+  
+  # Make df
+  metrics <- data.frame(
+    Metric = c("MAE", "MSE", "RMSE", "MPE"),
+    Value = c(mae, mse, rmse, mpe)
+  )
+  # Print
+  if (print){
+      print(kable(metrics, format = "pipe", col.names = c("Metric", "Value")))
+  }
+  return(list(MAE = mae, MSE = mse, RMSE = rmse, MPE = mpe, Results = results))
+}
+
+# Score ensemble
+models= list(linear_model,random_forest_model)
+results = ensemble(models, test_data,print = T)
+
+# Plot
+pred_vs_test(results$Results,feature="BasePay",title_extension="in general")
+plot_predicted_vs_actual(results$Results)
+plot_age_vs_predicted_actual(results$Results, feature = "BasePay")
+
+
+```
+
+
+
+## Conclusion
+
+After having applied and evaluated a variety of models, the linear regression model continuous to give back the best metrics and can thus be declared the best fit to the data analyzed in this work. The analysis is a good example for the philosophy of using the simplest models first and only when required move to more complex ones, as in this case the simplest model ended up having the best fit to the data. This furthermore was not unexpected as in Part of this work, the linear relationships between the some of the features could already be shown. Overall, the prediction of the BasePay variable with an mean percentage error of 3-4 % can be called somewhat precise and the models seem to be able to make good use of the correlations found in the data.  
+
